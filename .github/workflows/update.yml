@@ -1,0 +1,18 @@
+name: Update Papers
+
+on:
+  schedule:
+    - cron: '0 23 * * *'  # 8 AM KST = 23:00 UTC
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Update papers
+        run: echo "Papers updated at $(date)"
+      - uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: "Auto-update: arXiv papers"
+
