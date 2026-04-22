@@ -3,6 +3,7 @@
 arXiv 논문 큐레이션 스크립트
 - 화요일~토요일 아침 6시에 실행
 - 전날 발표된 논문 중 실무 적용 가능한 TOP 5 선정
+- Claude를 이용해 요약을 한글로 번역
 - GitHub에 커밋 및 푸시
 """
 
@@ -12,6 +13,7 @@ import json
 import subprocess
 from datetime import datetime, timedelta
 import time
+import os
 
 CATEGORIES = ['cs.AI', 'cs.LG', 'cs.CV', 'cs.NI', 'cs.CR']
 
@@ -67,6 +69,51 @@ def fetch_papers(target_date):
             all_papers[category] = []
     
     return all_papers
+
+def translate_to_korean(text):
+    """Claude API를 이용해 영문 요약을 한글로 번역"""
+    if not text or len(text.strip()) == 0:
+        return ""
+    
+    try:
+        # OpenRouter API 사용 (Claude 3.5 Haiku)
+        api_key = os.getenv('OPENROUTER_API_KEY')
+        if not api_key:
+            print("⚠️ OPENROUTER_API_KEY 환경 변수 없음, 원문 그대로 사용")
+            return text[:300] + "..." if len(text) > 300 else text
+        
+        url = 'https://openrouter.ai/api/v1/chat/completions'
+        headers = {
+            'Authorization': f'Bearer {api_key}',
+            'Content-Type': 'application/json'
+        }
+        
+        # 텍스트 길이 제한 (번역 시간 단축)
+        text_to_translate = text[:500] if len(text) > 500 else text
+        
+        payload = {
+            'model': 'anthropic/claude-3.5-haiku',
+            'messages': [{
+                'role': 'user',
+                'content': f'다음 영문 학술 논문 요약을 한글로 간결하게 번역해줘. 300자 이내로 요약해줘:\n\n{text_to_translate}'
+            }],
+            'temperature': 0.3,
+            'max_tokens': 300
+        }
+        
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        
+        if response.status_code == 200:
+            result = response.json()
+            translated = result['choices'][0]['message']['content'].strip()
+            return translated
+        else:
+            print(f"⚠️ Claude API 오류 (상태: {response.status_code}), 원문 사용")
+            return text[:300] + "..." if len(text) > 300 else text
+    
+    except Exception as e:
+        print(f"⚠️ 번역 오류: {str(e)[:50]}, 원문 사용")
+        return text[:300] + "..." if len(text) > 300 else text
 
 def score_paper(paper):
     """논문의 실무 적용 가능성과 주목도를 점수화"""
@@ -177,8 +224,10 @@ def generate_report(target_date, top_papers):
         report += f"- **점수**: {paper['score']}점\n"
         
         if paper['summary']:
-            summary = paper['summary'][:250] + "..." if len(paper['summary']) > 250 else paper['summary']
-            report += f"- **요약**: {summary}\n"
+            # Claude를 이용해 한글로 번역
+            print(f"   📝 {i}번 논문 요약 번역 중...")
+            translated_summary = translate_to_korean(paper['summary'])
+            report += f"- **요약 (한글)**: {translated_summary}\n"
         
         report += f"- **링크**: https://arxiv.org/abs/{paper['arxiv_id']}\n\n"
     
