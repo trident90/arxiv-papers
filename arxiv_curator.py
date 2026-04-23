@@ -18,56 +18,75 @@ import os
 CATEGORIES = ['cs.AI', 'cs.LG', 'cs.CV', 'cs.NI', 'cs.CR']
 
 def fetch_papers(target_date):
-    """특정 날짜의 모든 분야 논문 수집"""
+    """특정 날짜의 모든 분야 논문 수집 (분산 요청으로 Rate limit 회피)"""
     all_papers = {}
     
     for category in CATEGORIES:
-        # arXiv 검색: 최신 500개를 받아온 후 날짜로 필터링
-        query = f'cat:{category}'
-        url = 'http://export.arxiv.org/api/query'
-        params = {
-            'search_query': query,
-            'start': 0,
-            'max_results': 500,  # 더 많은 결과 조회
-            'sortBy': 'submittedDate',
-            'sortOrder': 'descending'
-        }
+        print(f"  ⏳ {category} 수집 중...", end=" ", flush=True)
         
-        try:
-            response = requests.get(url, params=params, timeout=15)
-            response.raise_for_status()
-            content = response.text
+        # 여러 배치로 나누어 요청 (각 배치는 작은 결과)
+        all_category_papers = []
+        
+        for batch in range(3):  # 3번 요청 (0-100, 100-200, 200-300)
+            query = f'cat:{category}'
+            url = 'http://export.arxiv.org/api/query'
             
-            entries = re.findall(r'<entry>(.*?)</entry>', content, re.DOTALL)
+            params = {
+                'search_query': query,
+                'start': batch * 100,
+                'max_results': 100,
+                'sortBy': 'submittedDate',
+                'sortOrder': 'descending'
+            }
             
-            papers = []
-            for entry in entries:
-                pub_match = re.search(r'<published>(\d{4}-\d{2}-\d{2})', entry)
+            try:
+                response = requests.get(url, params=params, timeout=15)
+                response.raise_for_status()
+                content = response.text
                 
-                if pub_match and pub_match.group(1) == target_date:
-                    title_match = re.search(r'<title>(.*?)</title>', entry)
-                    id_match = re.search(r'<id>http://arxiv\.org/abs/(.*?)</id>', entry)
-                    summary_match = re.search(r'<summary>\s*(.*?)\s*</summary>', entry, re.DOTALL)
-                    authors = re.findall(r'<author>\s*<name>(.*?)</name>', entry)
+                entries = re.findall(r'<entry>(.*?)</entry>', content, re.DOTALL)
+                
+                batch_count = 0
+                for entry in entries:
+                    pub_match = re.search(r'<published>(\d{4}-\d{2}-\d{2})', entry)
                     
-                    if title_match and id_match:
-                        paper = {
-                            'title': title_match.group(1).strip(),
-                            'arxiv_id': id_match.group(1).strip(),
-                            'authors': authors[:3],
-                            'summary': summary_match.group(1).strip() if summary_match else '',
-                            'date': target_date,
-                            'category': category
-                        }
-                        papers.append(paper)
-            
-            all_papers[category] = papers
-            print(f"  ✅ {category}: {len(papers)}편")
-            time.sleep(2.0)  # Rate limit (더 길게 대기)
-            
-        except Exception as e:
-            print(f"  ❌ {category}: {str(e)[:40]}")
-            all_papers[category] = []
+                    if pub_match and pub_match.group(1) == target_date:
+                        title_match = re.search(r'<title>(.*?)</title>', entry)
+                        id_match = re.search(r'<id>http://arxiv\.org/abs/(.*?)</id>', entry)
+                        summary_match = re.search(r'<summary>\s*(.*?)\s*</summary>', entry, re.DOTALL)
+                        authors = re.findall(r'<author>\s*<name>(.*?)</name>', entry)
+                        
+                        if title_match and id_match:
+                            paper = {
+                                'title': title_match.group(1).strip(),
+                                'arxiv_id': id_match.group(1).strip(),
+                                'authors': authors[:3],
+                                'summary': summary_match.group(1).strip() if summary_match else '',
+                                'date': target_date,
+                                'category': category
+                            }
+                            all_category_papers.append(paper)
+                            batch_count += 1
+                
+                # Rate limit 회피: 배치 간에 긴 대기
+                time.sleep(3.0)
+                
+            except requests.exceptions.HTTPError as e:
+                if '429' in str(e):
+                    print(f"\n  ⚠️ {category} Rate limit 감지, 스킵합니다")
+                    break
+                else:
+                    print(f"\n  ❌ {category} HTTP 오류: {str(e)[:40]}")
+                    break
+            except Exception as e:
+                print(f"\n  ❌ {category} 오류: {str(e)[:40]}")
+                break
+        
+        all_papers[category] = all_category_papers
+        print(f"✅ {len(all_category_papers)}편")
+        
+        # 카테고리 간 대기 (Rate limit 회피)
+        time.sleep(4.0)
     
     return all_papers
 
