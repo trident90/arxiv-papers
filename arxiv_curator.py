@@ -22,12 +22,13 @@ def fetch_papers(target_date):
     all_papers = {}
     
     for category in CATEGORIES:
+        # arXiv 검색: 최신 500개를 받아온 후 날짜로 필터링
         query = f'cat:{category}'
         url = 'http://export.arxiv.org/api/query'
         params = {
             'search_query': query,
             'start': 0,
-            'max_results': 100,
+            'max_results': 500,  # 더 많은 결과 조회
             'sortBy': 'submittedDate',
             'sortOrder': 'descending'
         }
@@ -62,7 +63,7 @@ def fetch_papers(target_date):
             
             all_papers[category] = papers
             print(f"  ✅ {category}: {len(papers)}편")
-            time.sleep(0.6)  # Rate limit
+            time.sleep(2.0)  # Rate limit (더 길게 대기)
             
         except Exception as e:
             print(f"  ❌ {category}: {str(e)[:40]}")
